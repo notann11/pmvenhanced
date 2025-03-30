@@ -1207,6 +1207,10 @@ function initFixPreview() {
 
     document.head.appendChild(style);
 
+    // Initialize our tracking variables
+    touchStartedInsideVideo = false;
+    activeVideoElement = null;
+
     // Set up event listeners
     document.addEventListener('touchstart', handleTouchStart, { passive: true });
     document.addEventListener('touchend', handleTouchEnd, { passive: false });
@@ -1214,6 +1218,7 @@ function initFixPreview() {
     document.addEventListener('touchcancel', () => {
         clearTimeout(longPressTimer);
         isLongPress = false;
+        touchStartedInsideVideo = false;
     }, { passive: true });
 
     // Monitor for and remove ripple effects
@@ -1248,7 +1253,6 @@ function initFixPreview() {
     fixPreviewInitialized = true;
     console.log('Fix Preview initialized');
 }
-
 // Remove Fix Preview functionality
 function removeFixPreview() {
     if (!fixPreviewInitialized) return;
@@ -1419,6 +1423,11 @@ function hideCurrentOverlay() {
 }
 
 // Handle touch start - potential start of long press
+let touchStartedInsideVideo = false;
+let activeVideoElement = null;
+
+
+// Modify the handleTouchStart function
 function handleTouchStart(e) {
     if (!config.enableFixPreview) return;
 
@@ -1429,14 +1438,36 @@ function handleTouchStart(e) {
 
     // Check if we're interacting with a video card
     const imgContainer = e.target.closest('.v-img');
-    if (!imgContainer) return;
+    if (!imgContainer) {
+        touchStartedInsideVideo = false;
+        lastTouchedCard = null;
+        return;
+    }
+
+    // Flag that touch started inside video
+    touchStartedInsideVideo = true;
+    
+    // Store reference to the touched card
+    lastTouchedCard = imgContainer;
 
     // Find the card container
     const card = imgContainer.closest('.v-card');
-    if (!card) return;
+    if (!card) {
+        touchStartedInsideVideo = false;
+        lastTouchedCard = null;
+        return;
+    }
 
     // If we clicked directly on the mute icon of a playing video, don't do anything
     if (e.target.closest('.custom-mute-icon') && currentVideoOverlay) {
+        return;
+    }
+
+    // Check if the current touch is on the same video that's already playing
+    const touchingCurrentVideo = currentVideoOverlay && currentVideoOverlay.parentElement === imgContainer;
+    
+    // If we're touching the same video that's already playing, allow scrolling without long press
+    if (touchingCurrentVideo) {
         return;
     }
 
@@ -1461,6 +1492,9 @@ function handleTouchStart(e) {
         // Create and play the new overlay
         const videoOverlay = createVideoOverlay(imgContainer, videoUrl);
         if (videoOverlay) {
+            // Store reference to current active video
+            activeVideoElement = videoOverlay;
+
             // Make sure volume and mute settings are applied before playing
             videoOverlay.volume = 0.3;
             videoOverlay.muted = globalMuted;
@@ -1489,13 +1523,15 @@ function handleTouchStart(e) {
 
             currentVideoOverlay = videoOverlay;
         }
-    }, 500); // Long press threshold of 500ms
+    }, 300); // Reduced long press threshold to 300ms as you mentioned
 }
+
 
 // Handle touch end
 function handleTouchEnd(e) {
     if (!config.enableFixPreview) return;
 
+    // Clear the long press timer
     clearTimeout(longPressTimer);
 
     // If this was a long press, prevent navigation
@@ -1517,21 +1553,42 @@ function handleTouchEnd(e) {
 
         document.addEventListener('click', preventNextClick, true);
     } else {
-        // If it was a short tap and not on a mute button, hide any playing videos
+        // If it was a short tap and not on a mute button or a video container
+        // Let's check if this is a new tap on a different element while a video is playing
         if (!e.target.closest('.custom-mute-icon')) {
-            hideCurrentOverlay();
+            // We want to only close the video if the tap ends outside the current video container
+            const tappedOnCurrentVideoContainer = currentVideoOverlay && 
+                (e.target === currentVideoOverlay.parentElement || 
+                 e.target.closest('.v-img') === currentVideoOverlay.parentElement);
+            
+            // If we're not tapping on the current video container, hide the video
+            if (!tappedOnCurrentVideoContainer) {
+                hideCurrentOverlay();
+            }
         }
     }
 
+    // Reset flags
     isLongPress = false;
+    touchStartedInsideVideo = false;
 }
 
 // Handle touch move - allow some scrolling tolerance
 function handleTouchMove(e) {
     if (!config.enableFixPreview) return;
 
+    // If the initial touch wasn't inside a video, ignore subsequent moves
+    if (!touchStartedInsideVideo) return;
+    
     // If we already triggered the long press, don't cancel
     if (isLongPress) return;
+    
+    // Check if the current touch started on the same video that's already playing
+    const touchingCurrentVideo = currentVideoOverlay && 
+                                lastTouchedCard === currentVideoOverlay.parentElement;
+                                
+    // If we're touching the current playing video, allow scrolling without canceling
+    if (touchingCurrentVideo) return;
 
     // Check if we've exceeded our scroll tolerance
     if (e.touches && e.touches[0]) {
@@ -1549,6 +1606,7 @@ function handleTouchMove(e) {
         isLongPress = false;
     }
 }
+
 
 // Remove ripple elements
 function removeRippleElements() {
