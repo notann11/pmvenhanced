@@ -136,9 +136,13 @@ function initVideoEffects() {
 function initQolFeatures() {
     // If double-tap seeking is enabled, initialize it
     if (config.enableDoubleTapSeek && isTouchDevice()) {
-        setTimeout(() => {
-            initDoubleTapSeek();
-        }, 1000);
+        // Set a one-time initialization
+        if (!window.doubleTapInitialized) {
+            setTimeout(() => {
+                initDoubleTapSeek();
+                // monitorVideoNavigation is now called from within initDoubleTapSeek
+            }, 1000);
+        }
     }
 
     // Initialize session tracker if enabled
@@ -962,67 +966,6 @@ function renderQolSettingsMenu() {
     makeDraggable(panel);
 }
 
-function monitorVideoNavigation() {
-    // Only monitor if double tap is enabled
-    if (!config.enableDoubleTapSeek) return;
-    
-    // Keep track of the current video URL
-    let currentVideoUrl = null;
-    let lastVideoCheck = 0;
-    
-    if (doubleTapVideoElement) {
-        currentVideoUrl = doubleTapVideoElement.src;
-    }
-    
-    // Check periodically for video source changes, but not too frequently
-    const checkInterval = setInterval(() => {
-        // Skip if feature is disabled
-        if (!config.enableDoubleTapSeek) return;
-        
-        // Don't check too frequently
-        const now = Date.now();
-        if (now - lastVideoCheck < 2000) return;
-        lastVideoCheck = now;
-        
-        const videoPlayer = document.getElementById('VideoPlayer');
-        if (videoPlayer && videoPlayer.src && videoPlayer.src !== currentVideoUrl) {
-            currentVideoUrl = videoPlayer.src;
-            
-            // Only reinitialize if our current reference is outdated
-            if (!doubleTapVideoElement || doubleTapVideoElement !== videoPlayer) {
-                // Remove existing canvas first
-                if (doubleTapCanvas && doubleTapCanvas.parentNode) {
-                    doubleTapCanvas.parentNode.removeChild(doubleTapCanvas);
-                    doubleTapCanvas = null;
-                }
-                
-                // Update our reference
-                doubleTapVideoElement = videoPlayer;
-                doubleTapInitialized = false;
-                
-                // Setup initialization on next play
-                const playHandler = function() {
-                    createDoubleTapCanvas();
-                    positionDoubleTapCanvas();
-                    doubleTapInitialized = true;
-                    videoPlayer.removeEventListener('play', playHandler);
-                };
-                
-                videoPlayer.addEventListener('play', playHandler);
-                
-                // If already playing, initialize now
-                if (!videoPlayer.paused) {
-                    playHandler();
-                }
-            }
-        }
-    }, 3000); // Check every 3 seconds instead of every 1 second
-    
-    // Store the interval ID for cleanup
-    window.doubleTapMonitorInterval = checkInterval;
-}
-
-
 // Remove double-tap seeking functionality
 function removeDoubleTapSeek() {
     if (!doubleTapInitialized && !doubleTapCanvas) return;
@@ -1053,6 +996,7 @@ function removeDoubleTapSeek() {
     doubleTapInitialized = false;
 }
 
+
 // Set up QoL toggle event listeners
 function setupQolToggles() {
     // Double-tap toggle event listener
@@ -1062,13 +1006,13 @@ function setupQolToggles() {
             const wasEnabled = config.enableDoubleTapSeek;
             config.enableDoubleTapSeek = this.checked;
 
-            // Clean up any existing resources
-            removeDoubleTapSeek();
-
             // Initialize or remove based on new state
             if (config.enableDoubleTapSeek && !wasEnabled) {
                 // If enabling, initialize
                 initDoubleTapSeek();
+            } else if (!config.enableDoubleTapSeek && wasEnabled) {
+                // If disabling, remove event listeners and canvas
+                removeDoubleTapSeek();
             }
 
             saveConfig();
@@ -2911,7 +2855,6 @@ function setupDoubleTapObservers() {
     setInterval(positionDoubleTapCanvas, 1000);
 }
 
-
 function drawDoubleTapFeedback(text) {
     if (!doubleTapCanvas) return;
 
@@ -3093,6 +3036,65 @@ function initDoubleTapSeek() {
     }
 }
 
+function monitorVideoNavigation() {
+    // Only monitor if double tap is enabled
+    if (!config.enableDoubleTapSeek) return;
+    
+    // Keep track of the current video URL
+    let currentVideoUrl = null;
+    let lastVideoCheck = 0;
+    
+    if (doubleTapVideoElement) {
+        currentVideoUrl = doubleTapVideoElement.src;
+    }
+    
+    // Check periodically for video source changes, but not too frequently
+    const checkInterval = setInterval(() => {
+        // Skip if feature is disabled
+        if (!config.enableDoubleTapSeek) return;
+        
+        // Don't check too frequently
+        const now = Date.now();
+        if (now - lastVideoCheck < 2000) return;
+        lastVideoCheck = now;
+        
+        const videoPlayer = document.getElementById('VideoPlayer');
+        if (videoPlayer && videoPlayer.src && videoPlayer.src !== currentVideoUrl) {
+            currentVideoUrl = videoPlayer.src;
+            
+            // Only reinitialize if our current reference is outdated
+            if (!doubleTapVideoElement || doubleTapVideoElement !== videoPlayer) {
+                // Remove existing canvas first
+                if (doubleTapCanvas && doubleTapCanvas.parentNode) {
+                    doubleTapCanvas.parentNode.removeChild(doubleTapCanvas);
+                    doubleTapCanvas = null;
+                }
+                
+                // Update our reference
+                doubleTapVideoElement = videoPlayer;
+                doubleTapInitialized = false;
+                
+                // Setup initialization on next play
+                const playHandler = function() {
+                    createDoubleTapCanvas();
+                    positionDoubleTapCanvas();
+                    doubleTapInitialized = true;
+                    videoPlayer.removeEventListener('play', playHandler);
+                };
+                
+                videoPlayer.addEventListener('play', playHandler);
+                
+                // If already playing, initialize now
+                if (!videoPlayer.paused) {
+                    playHandler();
+                }
+            }
+        }
+    }, 3000); // Check every 3 seconds instead of every 1 second
+    
+    // Store the interval ID for cleanup
+    window.doubleTapMonitorInterval = checkInterval;
+}
 
 // Apply changes to all videos when settings change
 function applySettingsToAllVideos() {
