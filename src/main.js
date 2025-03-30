@@ -2708,7 +2708,7 @@ function handleDoubleTapTouch(event) {
     const videoRect = doubleTapVideoElement.getBoundingClientRect();
 
     // Consider the bottom 20% of the video to be the control area
-    const controlAreaThreshold = videoRect.height * 0.8;
+    const controlAreaThreshold = videoRect.height * 0.75;
     const isInControlArea = (touchY - videoRect.top) > controlAreaThreshold;
 
     // If touch is in control area, let it pass through to video
@@ -2797,8 +2797,8 @@ function positionDoubleTapCanvas() {
     // Only position if video has a valid size
     if (videoRect.width <= 0 || videoRect.height <= 0) return;
 
-    // Only cover the top 80% of the video, leaving bottom 20% for controls
-    const controlsHeight = videoRect.height * 0.2;
+    // Only cover the top 80% of the video, leaving bottom 25% for controls
+    const controlsHeight = videoRect.height * 0.25;
 
     doubleTapCanvas.style.position = 'fixed';
     doubleTapCanvas.style.left = videoRect.left + 'px';
