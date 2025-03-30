@@ -2354,7 +2354,7 @@ function createControlPanel() {
         color: white;
         border-radius: 8px;
         box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
-        z-index: 99998;
+        z-index: 999991;
         transition: opacity 0.3s, transform 0.3s;
         font-family: Arial, sans-serif;
         padding: 0;
@@ -4315,13 +4315,16 @@ function setupGif() {
             // Create GIF preview
             const previewImg = document.createElement('img');
             previewImg.src = blobUrl;
-            previewImg.style.maxWidth = '100%';
+            
+            // Apply sizing based on aspect ratio
+            const isPortrait = gifConfig.canvas.height > gifConfig.canvas.width;
+            
+            previewImg.style.maxWidth = isPortrait ? '50%' : '100%';
             previewImg.style.borderRadius = '4px';
-            previewImg.style.border = '1px solid #ccc';
+            previewImg.style.border = '1px solid rgba(51, 51, 51, 0.9)';
             previewImg.style.cursor = 'pointer';
             previewImg.title = 'Click to view fullscreen';
-            previewImg.style.border = '1px solid rgba(51, 51, 51, 0.9)';
-
+            
             // Add click event to show fullscreen
             previewImg.addEventListener('click', function () {
                 const fullscreenView = document.createElement('div');
@@ -4358,8 +4361,15 @@ function setupGif() {
             downloadButton.textContent = 'Download GIF';
             downloadButton.className = 'menu-button download-button';
 
+            // Create a wrapper div for better layout control with portrait images
+            const previewWrapper = document.createElement('div');
+            previewWrapper.style.display = 'flex';
+            previewWrapper.style.justifyContent = isPortrait ? 'center' : 'flex-start';
+            previewWrapper.style.width = '100%';
+            previewWrapper.appendChild(previewImg);
+
             // Add everything to preview container
-            previewContainer.appendChild(previewImg);
+            previewContainer.appendChild(previewWrapper);
             previewContainer.appendChild(downloadButton);
         }
 
