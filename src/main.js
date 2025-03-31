@@ -1,7 +1,7 @@
 /**
- * Video Effects Enhancer
- * Adds glow effects, pulse animations, and color enhancements to videos
- */
+ * PMVHaven Enhanced
+ * 31 March 2025
+*/
 
 // Default configuration
 const defaultConfig = {
@@ -28,6 +28,7 @@ const defaultConfig = {
     enablePulsing: true,         // Set to false to disable the pulsing effect
     enableGlow: true,            // Set to false to disable the color glow effect
     enableSaturation: true,      // Set to false to disable the saturation boost
+    enableFocusMode: false,      // New toggle for focus mode
     // UI settings
     controlPanelVisible: true,   // Control panel visibility
     controlPanelPosition: 'center', // 'top-left', 'top-right', 'bottom-left', 'bottom-right'
@@ -143,6 +144,11 @@ function initQolFeatures() {
                 // monitorVideoNavigation is now called from within initDoubleTapSeek
             }, 1000);
         }
+    }
+
+    // Initialize Focus Mode if enabled
+    if (config.enableFocusMode) {
+        setTimeout(() => handleFocusMode(true), 1000);
     }
 
     // Initialize session tracker if enabled
@@ -283,24 +289,59 @@ function detectSceneChange(currentGrid, previousGrid) {
         return false;
     }
 
-    // Count how many cells have significant changes
+    // 1. Calculate motion score
     let changedCells = 0;
+    let totalMotionDistance = 0;
+    let maxColorDistance = 0;
+
     for (let i = 0; i < currentGrid.length; i++) {
         const distance = colorDistance(currentGrid[i], previousGrid[i]);
+
+        // Track total motion across all cells
+        totalMotionDistance += distance;
+
+        // Track cells that exceed motion threshold
         if (distance > config.motionThreshold) {
             changedCells++;
         }
+
+        // Track maximum color distance for any cell
+        if (distance > maxColorDistance) {
+            maxColorDistance = distance;
+        }
     }
 
-    // Calculate percentage of changed cells
-    const changeRatio = changedCells / currentGrid.length;
+    // 2. Calculate metrics
+    const motionRatio = changedCells / currentGrid.length;  // % of cells with significant motion
+    const avgMotionValue = totalMotionDistance / currentGrid.length;  // Average motion across all cells
+    const normalizedMaxColor = Math.min(1.0, maxColorDistance / 255); // Normalize max color change (0-1)
+
+    // Store these values for the graph to use
+    window._lastMotionRatio = motionRatio;
+    window._lastAvgMotionValue = avgMotionValue;
+    window._lastMaxColorChange = normalizedMaxColor;
+
+    // 3. Calculate combined score using weighted factors
+    // Default weights: 60% motion ratio, 30% avg motion, 10% max color
+    const motionRatioWeight = 0.6;
+    const avgMotionWeight = 0.3;
+    const maxColorWeight = 0.1;
+
+    const combinedScore = (
+        (motionRatio * motionRatioWeight) +
+        (Math.min(1.0, avgMotionValue / config.motionThreshold) * avgMotionWeight) +
+        (normalizedMaxColor * maxColorWeight)
+    );
+
+    // Store the combined score for use in the graph
+    window._lastCombinedScore = combinedScore;
 
     if (config.debug) {
-        console.log(`Scene detection: ${Math.round(changeRatio * 100)}% of cells changed significantly`);
+        console.log(`Scene detection: Combined score ${combinedScore.toFixed(2)} (motion ratio: ${(motionRatio * 100).toFixed(1)}%, avg motion: ${avgMotionValue.toFixed(1)}, color change: ${(normalizedMaxColor * 100).toFixed(1)}%)`);
     }
 
-    // Return true if the percentage exceeds our confidence threshold
-    return changeRatio >= config.sceneChangeConfidence;
+    // 4. Return true if combined score exceeds our threshold
+    return combinedScore >= config.sceneChangeConfidence;
 }
 
 function triggerPulsate(video) {
@@ -313,7 +354,12 @@ function triggerPulsate(video) {
         return;
     }
 
-    // Remove any existing pulse effect classes
+    // NEW: Check if a pulse animation is already in progress
+    if (video._pulseInProgress) {
+        return;
+    }
+
+    // Remove any existing pulse effect classes (just to be safe)
     video.classList.remove('video-pulse-scale', 'video-pulse-glow', 'video-pulse-fade', 'video-pulse-both', 'video-pulse-bpm');
 
     // Set CSS variables for animation duration and scale
@@ -332,9 +378,14 @@ function triggerPulsate(video) {
     // Update timestamp for cooldown
     video._lastPulsateTime = now;
 
-    // Remove class after animation completes
+    // NEW: Set flag that pulse is in progress
+    video._pulseInProgress = true;
+
+    // Remove class after animation completes and reset flag
     setTimeout(() => {
         video.classList.remove(pulseClass);
+        // NEW: Reset the in-progress flag when animation completes
+        video._pulseInProgress = false;
     }, config.pulsateDuration);
 
     if (config.debug) console.log('Pulse triggered: ' + config.pulseEffect);
@@ -368,17 +419,13 @@ function updateVideoMonitor(video) {
 
     // Check for scene change if we have previous grid data
     if (video._lastGrid) {
-        // Check if this is a scene change
+        // Use our combined detection approach
         if (detectSceneChange(grid, video._lastGrid)) {
             triggerPulsate(video);
         }
 
-        // Additional check for dramatic overall color change
-        const avgColorDistance = colorDistance(avgColor, video._lastAvgColor);
-        if (avgColorDistance > config.colorThreshold * 2) { // Higher threshold for overall change
-            if (config.debug) console.log(`Dramatic color shift detected: ${avgColorDistance}`);
-            triggerPulsate(video);
-        }
+        // NO separate "first to report wins" check for color change
+        // Now using just the one combined scoring system
     }
 
     // Save current data for next comparison
@@ -580,6 +627,7 @@ function renderMainMenu() {
             <button id="toggle-glow" class="${config.enableGlow ? 'active' : ''}">Glow</button>
             <button id="toggle-pulse" class="${config.enablePulsing ? 'active' : ''}">Pulse</button>
             <button id="toggle-saturation" class="${config.enableSaturation ? 'active' : ''}">Sat</button>
+            <button id="toggle-focus" class="${config.enableFocusMode ? 'active' : ''}">Focus</button>
             <button id="toggle-gif" title="Create GIF from video">Gif</button>
             <button id="toggle-whois" title="Reverse image search current video frame">Source</button>
         </div>
@@ -626,6 +674,14 @@ function setupMainMenuButtons() {
             renderQolSettingsMenu();
         });
     }
+
+    // Add Focus toggle button listener
+    document.getElementById('toggle-focus').addEventListener('click', function () {
+        config.enableFocusMode = !config.enableFocusMode;
+        this.classList.toggle('active');
+        handleFocusMode(config.enableFocusMode);
+        saveConfig();
+    });
 
     // Toggle buttons
     document.getElementById('toggle-glow').addEventListener('click', function () {
@@ -947,12 +1003,12 @@ function renderQolSettingsMenu() {
             </label>
         </div>
         
-        <!-- NEW: Fix Preview Toggle -->
-        <div class="toggle-row" ${!isTouchDevice() ? 'title="This feature is designed for touch devices"' : ''}>
+                <div class="toggle-row" ${!isTouchDevice() ? 'title="This feature requires a touch device"' : ''}>
             <span class="toggle-label">Fix Preview</span>
-            <label class="toggle-switch">
+            <label class="toggle-switch ${!isTouchDevice() ? 'disabled' : ''}">
                 <input type="checkbox" id="fix-preview-toggle" 
-                       ${config.enableFixPreview ? 'checked' : ''}>
+                       ${config.enableZoomDisable ? 'checked' : ''} 
+                       ${!isTouchDevice() ? 'disabled' : ''}>
                 <span class="toggle-slider"></span>
             </label>
         </div>
@@ -964,6 +1020,125 @@ function renderQolSettingsMenu() {
     setupBackButton();
     setupMinimizeButton(panel);
     makeDraggable(panel);
+}
+
+
+// Focus mode implementation
+function handleFocusMode(enable) {
+    // Use an ID for the style element to easily find/remove it
+    const focusStyleId = 'pmvhaven-focus-mode-styles';
+
+    if (enable) {
+        // Remove existing style if it exists
+        const existingStyle = document.getElementById(focusStyleId);
+        if (existingStyle) {
+            existingStyle.remove();
+        }
+
+        // Create a style element for hiding elements
+        const style = document.createElement('style');
+        style.id = focusStyleId;
+
+        // CSS for hiding elements and centering video
+        style.textContent = `
+            /* Hide various UI elements */
+            .subheader.hidden-sm-and-down,
+            #header,
+            .mt-4,
+            .v-col-sm-6.v-col-md-4.v-col-12,
+            .v-footer.v-theme--dark.footer,
+            .v-card-title,
+            .v-col-md-2.v-col-lg-3.v-col-12,
+            .v-col-md-2.v-col-lg-4.v-col-12,
+            div[data-v-d40026e9].v-col-md-2.v-col-lg-3.v-col-12,
+            div[class*="v-col-md-2"],
+            div[class*="v-col-lg-3"],
+            .desktopAd,
+            .v-row.v-row--no-gutters,
+            .svg-inline--fa.fa-user,
+            .svg-inline--fa.fa-eye,
+            .svg-inline--fa.fa-volume-xmark,
+            [style*="color: orange; z-index: 2;"],
+            .v-card__text,
+            .v-card--link,
+            .pb-0.mb-0.pl-1.pr-1,
+            .v-row.ma-0.mb-2 {
+                display: none !important;
+            }
+            
+            /* Hide divs that contain multiple video links */
+            div:has(.v-row a[href^="/video/"]:nth-child(3)) {
+                display: none !important;
+            }
+            
+            /* Adjust margins */
+            .mt-6 {
+                margin-top: 30px !important;
+            }
+            
+            /* Base video styles */
+            video, .v-responsive, .v-responsive__content, .v-img, iframe {
+                margin: 0 auto !important;
+                display: block !important;
+                max-width: 100% !important;
+                height: auto !important;
+            }
+            
+            /* Landscape mode styles */
+            @media (orientation: landscape) and (max-width: 991px) {
+                video, .v-responsive, .v-responsive__content, .v-img, iframe {
+                    width: 76vw !important;
+                }
+                
+                .mt-6 {
+                    margin-top: 0 !important;
+                }
+            }
+            
+            /* Desktop override */
+            @media (min-width: 1024px) {
+                video, .v-responsive, .v-responsive__content, .v-img, iframe {
+                    width: auto !important;
+                }
+            }
+            
+            /* Fullscreen handling */
+            :-webkit-full-screen video,
+            :fullscreen video {
+                width: 100vw !important;
+                height: 100vh !important;
+                max-height: 100vh !important;
+                object-fit: contain !important;
+            }
+            
+            /* Center content */
+            .v-row {
+                justify-content: center !important;
+            }
+            
+            .v-col-md-8.v-col-12 {
+                margin: 0 auto !important;
+                display: flex !important;
+                justify-content: center !important;
+            }
+            
+            .v-container {
+                max-width: 100% !important;
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: center !important;
+            }
+        `;
+
+        // Add the style to the document
+        document.head.appendChild(style);
+    } else {
+        // Remove the style element to restore the original UI
+        const existingStyle = document.getElementById(focusStyleId);
+        if (existingStyle) {
+            existingStyle.remove();
+        }
+    }
 }
 
 // Remove double-tap seeking functionality
@@ -1446,7 +1621,7 @@ function handleTouchStart(e) {
 
     // Flag that touch started inside video
     touchStartedInsideVideo = true;
-    
+
     // Store reference to the touched card
     lastTouchedCard = imgContainer;
 
@@ -1465,7 +1640,7 @@ function handleTouchStart(e) {
 
     // Check if the current touch is on the same video that's already playing
     const touchingCurrentVideo = currentVideoOverlay && currentVideoOverlay.parentElement === imgContainer;
-    
+
     // If we're touching the same video that's already playing, allow scrolling without long press
     if (touchingCurrentVideo) {
         return;
@@ -1557,10 +1732,10 @@ function handleTouchEnd(e) {
         // Let's check if this is a new tap on a different element while a video is playing
         if (!e.target.closest('.custom-mute-icon')) {
             // We want to only close the video if the tap ends outside the current video container
-            const tappedOnCurrentVideoContainer = currentVideoOverlay && 
-                (e.target === currentVideoOverlay.parentElement || 
-                 e.target.closest('.v-img') === currentVideoOverlay.parentElement);
-            
+            const tappedOnCurrentVideoContainer = currentVideoOverlay &&
+                (e.target === currentVideoOverlay.parentElement ||
+                    e.target.closest('.v-img') === currentVideoOverlay.parentElement);
+
             // If we're not tapping on the current video container, hide the video
             if (!tappedOnCurrentVideoContainer) {
                 hideCurrentOverlay();
@@ -1579,14 +1754,14 @@ function handleTouchMove(e) {
 
     // If the initial touch wasn't inside a video, ignore subsequent moves
     if (!touchStartedInsideVideo) return;
-    
+
     // If we already triggered the long press, don't cancel
     if (isLongPress) return;
-    
+
     // Check if the current touch started on the same video that's already playing
-    const touchingCurrentVideo = currentVideoOverlay && 
-                                lastTouchedCard === currentVideoOverlay.parentElement;
-                                
+    const touchingCurrentVideo = currentVideoOverlay &&
+        lastTouchedCard === currentVideoOverlay.parentElement;
+
     // If we're touching the current playing video, allow scrolling without canceling
     if (touchingCurrentVideo) return;
 
@@ -2696,22 +2871,33 @@ function createDoubleTapCanvas() {
     // Add the canvas to the page
     document.body.appendChild(doubleTapCanvas);
 
-    // Add touch event listeners to canvas
-    doubleTapCanvas.addEventListener('touchstart', handleDoubleTapTouch, { passive: false });
+    // Add touch event listeners to canvas - now including touchmove
+    doubleTapCanvas.addEventListener('touchstart', handleDoubleTapTouch, { passive: true });
+    doubleTapCanvas.addEventListener('touchmove', handleDoubleTapTouch, { passive: false });
     doubleTapCanvas.addEventListener('touchend', handleDoubleTapTouch, { passive: false });
 }
+
+// Update the lastTap object to include start position for scroll detection
+lastTap = {
+    time: 0,
+    x: 0,
+    y: 0,
+    startX: 0, // New property to track touch start for scroll detection
+    startY: 0  // New property to track touch start for scroll detection
+};
 
 function handleDoubleTapTouch(event) {
     // Get touch information
     const touch = event.touches[0] || event.changedTouches[0];
     const touchY = touch.clientY;
+    const touchX = touch.clientX;
     const videoRect = doubleTapVideoElement.getBoundingClientRect();
 
-    // Consider the bottom 20% of the video to be the control area
+    // Consider the bottom 25% of the video to be the control area
     const controlAreaThreshold = videoRect.height * 0.75;
     const isInControlArea = (touchY - videoRect.top) > controlAreaThreshold;
 
-    // If touch is in control area, let it pass through to video
+    // If touch is in control area, let it pass through to video controls
     if (isInControlArea) {
         doubleTapCanvas.style.pointerEvents = 'none';
 
@@ -2725,62 +2911,97 @@ function handleDoubleTapTouch(event) {
         return; // Don't preventDefault, let event pass through
     }
 
-    // For touches outside control area, proceed with normal handling
-    event.preventDefault();
-    event.stopPropagation();
+    // NEW SCROLL DETECTION CODE
+    // For touchstart events, just record the initial position but don't prevent default
+    if (event.type === 'touchstart') {
+        // Store initial Y position for scroll detection
+        lastTap.startY = touchY;
+        lastTap.startX = touchX;
+        return; // Allow event to continue for potential scrolling
+    }
 
-    // Only process touchend events for double-tap detection
-    if (event.type !== 'touchend') return;
+    // For touchmove events, we need to detect if this is a scroll vs a tap
+    if (event.type === 'touchmove') {
+        // Calculate vertical movement
+        const deltaY = Math.abs(touchY - lastTap.startY);
+        const deltaX = Math.abs(touchX - lastTap.startX);
 
-    const touchX = touch.clientX;
-    const currentTime = new Date().getTime();
-
-    // Check if it's a double tap
-    const isDoubleTap = (
-        currentTime - lastTap.time < config.doubleTapThreshold &&
-        Math.abs(touchX - lastTap.x) < 40 &&
-        Math.abs(touchY - lastTap.y) < 40
-    );
-
-    if (isDoubleTap) {
-        // This is a double tap
-        const canvasWidth = doubleTapCanvas.width;
-        const relativeX = touchX - doubleTapCanvas.getBoundingClientRect().left;
-        const tapSide = relativeX < canvasWidth / 2 ? 'left' : 'right';
-
-        // Process the skip
-        if (tapSide === 'left') {
-            // Skip backward
-            doubleTapVideoElement.currentTime = Math.max(0, doubleTapVideoElement.currentTime - config.skipTimeInSeconds);
-            drawDoubleTapFeedback('◀◀ ' + config.skipTimeInSeconds + 's');
-        } else {
-            // Skip forward
-            doubleTapVideoElement.currentTime = Math.min(doubleTapVideoElement.duration, doubleTapVideoElement.currentTime + config.skipTimeInSeconds);
-            drawDoubleTapFeedback('▶▶ ' + config.skipTimeInSeconds + 's');
+        // If moved more than threshold, this is a scroll, not a tap
+        if (deltaY > 10 || deltaX > 10) {
+            // Don't interfere with scroll
+            return;
         }
 
-        // Reset tap tracking
-        lastTap.time = 0;
-    } else {
-        // This is a first tap
-        lastTap.time = currentTime;
-        lastTap.x = touchX;
-        lastTap.y = touchY;
+        // If it's a small movement but not clearly a scroll yet, prevent default
+        // to avoid both scrolling and tapping
+        event.preventDefault();
+        return;
+    }
 
-        // Forward the tap to the video after a delay to allow double-tap detection
-        setTimeout(() => {
-            if (currentTime === lastTap.time) {
-                // It was a single tap (not part of a double-tap sequence)
-                forwardTapToVideo(touchX, touchY);
+    // For touchend events, continue with double-tap detection
+    if (event.type === 'touchend') {
+        // Calculate movement to confirm this was a tap, not a scroll
+        const deltaY = Math.abs(touchY - lastTap.startY);
+        const deltaX = Math.abs(touchX - lastTap.startX);
+
+        // If moved too much, this was a scroll attempt, not a tap
+        if (deltaY > 10 || deltaX > 10) {
+            return; // Let scroll happen naturally
+        }
+
+        // This was a tap (not a scroll), so we can safely prevent default
+        event.preventDefault();
+        event.stopPropagation();
+
+        const currentTime = new Date().getTime();
+
+        // Check if it's a double tap
+        const isDoubleTap = (
+            currentTime - lastTap.time < config.doubleTapThreshold &&
+            Math.abs(touchX - lastTap.x) < 40 &&
+            Math.abs(touchY - lastTap.y) < 40
+        );
+
+        if (isDoubleTap) {
+            // This is a double tap
+            const canvasWidth = doubleTapCanvas.width;
+            const relativeX = touchX - doubleTapCanvas.getBoundingClientRect().left;
+            const tapSide = relativeX < canvasWidth / 2 ? 'left' : 'right';
+
+            // Process the skip
+            if (tapSide === 'left') {
+                // Skip backward
+                doubleTapVideoElement.currentTime = Math.max(0, doubleTapVideoElement.currentTime - config.skipTimeInSeconds);
+                drawDoubleTapFeedback('◀◀ ' + config.skipTimeInSeconds + 's');
+            } else {
+                // Skip forward
+                doubleTapVideoElement.currentTime = Math.min(doubleTapVideoElement.duration, doubleTapVideoElement.currentTime + config.skipTimeInSeconds);
+                drawDoubleTapFeedback('▶▶ ' + config.skipTimeInSeconds + 's');
             }
-        }, config.doubleTapThreshold + 10);
+
+            // Reset tap tracking
+            lastTap.time = 0;
+        } else {
+            // This is a first tap
+            lastTap.time = currentTime;
+            lastTap.x = touchX;
+            lastTap.y = touchY;
+
+            // Forward the tap to the video after a delay to allow double-tap detection
+            setTimeout(() => {
+                if (currentTime === lastTap.time) {
+                    // It was a single tap (not part of a double-tap sequence)
+                    forwardTapToVideo(touchX, touchY);
+                }
+            }, config.doubleTapThreshold + 10);
+        }
     }
 }
 
 // Position canvas over video, but exclude control area
 function positionDoubleTapCanvas() {
     if (!doubleTapVideoElement || !doubleTapCanvas) return;
-    
+
     // Check if video element is still valid and in the DOM
     if (!document.contains(doubleTapVideoElement)) {
         console.log("Video element no longer in DOM, looking for new video");
@@ -2793,7 +3014,7 @@ function positionDoubleTapCanvas() {
     }
 
     const videoRect = doubleTapVideoElement.getBoundingClientRect();
-    
+
     // Only position if video has a valid size
     if (videoRect.width <= 0 || videoRect.height <= 0) return;
 
@@ -2829,7 +3050,7 @@ function setupDoubleTapObservers() {
     // Use a debounced observer to reduce excessive checks
     let videoCheckTimeout = null;
     let lastCheck = 0;
-    
+
     const observer = new MutationObserver((mutations) => {
         // Only check every 500ms at most to prevent excessive processing
         const now = Date.now();
@@ -2838,53 +3059,53 @@ function setupDoubleTapObservers() {
             if (videoCheckTimeout) {
                 clearTimeout(videoCheckTimeout);
             }
-            
+
             // Schedule a check after the cooldown period
             videoCheckTimeout = setTimeout(() => {
                 checkVideoElement();
                 videoCheckTimeout = null;
             }, 500 - (now - lastCheck));
-            
+
             return;
         }
-        
+
         // Do the actual check
         checkVideoElement();
     });
-    
+
     function checkVideoElement() {
         lastCheck = Date.now();
-        
+
         // Only run this check if the feature is enabled
         if (!config.enableDoubleTapSeek) return;
-        
+
         // Check if the video element is still valid
         const currentVideo = document.getElementById('VideoPlayer');
-        
+
         // Completely different situation - no current video
         if (!currentVideo) return;
-        
+
         // If our reference is gone or different from current video
-        if (!doubleTapVideoElement || !document.contains(doubleTapVideoElement) || 
+        if (!doubleTapVideoElement || !document.contains(doubleTapVideoElement) ||
             doubleTapVideoElement !== currentVideo) {
-            
+
             // Clean up old resources
             if (doubleTapCanvas && doubleTapCanvas.parentNode) {
                 doubleTapCanvas.parentNode.removeChild(doubleTapCanvas);
                 doubleTapCanvas = null;
             }
-            
+
             // Update video reference
             doubleTapVideoElement = currentVideo;
-            
+
             // Setup observers for the new video
             resizeObserver.observe(doubleTapVideoElement, { box: 'border-box' });
-            
+
             // Reset initialization and wait for play
             doubleTapInitialized = false;
-            
+
             // Set up play event for the new video
-            const newPlayHandler = function() {
+            const newPlayHandler = function () {
                 if (!doubleTapInitialized) {
                     createDoubleTapCanvas();
                     positionDoubleTapCanvas();
@@ -2892,9 +3113,9 @@ function setupDoubleTapObservers() {
                 }
                 doubleTapVideoElement.removeEventListener('play', newPlayHandler);
             };
-            
+
             doubleTapVideoElement.addEventListener('play', newPlayHandler);
-            
+
             // If the video is already playing, trigger the handler immediately
             if (!doubleTapVideoElement.paused) {
                 newPlayHandler();
@@ -3051,10 +3272,10 @@ function forwardTapToVideo(x, y) {
 function initDoubleTapSeek() {
     // Clean up any existing double tap resources first
     removeDoubleTapSeek();
-    
+
     // Reset initialized state
     doubleTapInitialized = false;
-    
+
     // Find video element
     doubleTapVideoElement = document.getElementById('VideoPlayer');
     if (!doubleTapVideoElement) {
@@ -3087,7 +3308,7 @@ function initDoubleTapSeek() {
     if (doubleTapVideoElement && !doubleTapVideoElement.paused) {
         firstPlayHandler();
     }
-    
+
     // Start monitoring for navigation
     if (!window.doubleTapMonitorInterval) {
         monitorVideoNavigation();
@@ -3097,29 +3318,29 @@ function initDoubleTapSeek() {
 function monitorVideoNavigation() {
     // Only monitor if double tap is enabled
     if (!config.enableDoubleTapSeek) return;
-    
+
     // Keep track of the current video URL
     let currentVideoUrl = null;
     let lastVideoCheck = 0;
-    
+
     if (doubleTapVideoElement) {
         currentVideoUrl = doubleTapVideoElement.src;
     }
-    
+
     // Check periodically for video source changes, but not too frequently
     const checkInterval = setInterval(() => {
         // Skip if feature is disabled
         if (!config.enableDoubleTapSeek) return;
-        
+
         // Don't check too frequently
         const now = Date.now();
         if (now - lastVideoCheck < 2000) return;
         lastVideoCheck = now;
-        
+
         const videoPlayer = document.getElementById('VideoPlayer');
         if (videoPlayer && videoPlayer.src && videoPlayer.src !== currentVideoUrl) {
             currentVideoUrl = videoPlayer.src;
-            
+
             // Only reinitialize if our current reference is outdated
             if (!doubleTapVideoElement || doubleTapVideoElement !== videoPlayer) {
                 // Remove existing canvas first
@@ -3127,21 +3348,21 @@ function monitorVideoNavigation() {
                     doubleTapCanvas.parentNode.removeChild(doubleTapCanvas);
                     doubleTapCanvas = null;
                 }
-                
+
                 // Update our reference
                 doubleTapVideoElement = videoPlayer;
                 doubleTapInitialized = false;
-                
+
                 // Setup initialization on next play
-                const playHandler = function() {
+                const playHandler = function () {
                     createDoubleTapCanvas();
                     positionDoubleTapCanvas();
                     doubleTapInitialized = true;
                     videoPlayer.removeEventListener('play', playHandler);
                 };
-                
+
                 videoPlayer.addEventListener('play', playHandler);
-                
+
                 // If already playing, initialize now
                 if (!videoPlayer.paused) {
                     playHandler();
@@ -3149,7 +3370,7 @@ function monitorVideoNavigation() {
             }
         }
     }, 3000); // Check every 3 seconds instead of every 1 second
-    
+
     // Store the interval ID for cleanup
     window.doubleTapMonitorInterval = checkInterval;
 }
@@ -4315,16 +4536,16 @@ function setupGif() {
             // Create GIF preview
             const previewImg = document.createElement('img');
             previewImg.src = blobUrl;
-            
+
             // Apply sizing based on aspect ratio
             const isPortrait = gifConfig.canvas.height > gifConfig.canvas.width;
-            
+
             previewImg.style.maxWidth = isPortrait ? '50%' : '100%';
             previewImg.style.borderRadius = '4px';
             previewImg.style.border = '1px solid rgba(51, 51, 51, 0.9)';
             previewImg.style.cursor = 'pointer';
             previewImg.title = 'Click to view fullscreen';
-            
+
             // Add click event to show fullscreen
             previewImg.addEventListener('click', function () {
                 const fullscreenView = document.createElement('div');
