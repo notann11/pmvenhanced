@@ -1074,7 +1074,7 @@ function handleFocusMode(enable) {
             /* Portrait mode styles for mobile devices */
             @media (orientation: portrait) and (max-width: 767px) {
                 .mt-6 {
-                    margin-top: 45vw !important;
+                    margin-top: 30vw !important;
                 }
             }
                 
