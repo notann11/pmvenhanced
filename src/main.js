@@ -1071,10 +1071,13 @@ function handleFocusMode(enable) {
                 display: none !important;
             }
             
-            /* Adjust margins */
-            .mt-6 {
-                margin-top: 30px !important;
+            /* Portrait mode styles for mobile devices */
+            @media (orientation: portrait) and (max-width: 767px) {
+                .mt-6 {
+                    margin-top: 50vw !important;
+                }
             }
+                
             
             /* Base video styles */
             video, .v-responsive, .v-responsive__content, .v-img, iframe {
