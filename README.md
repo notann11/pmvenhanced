@@ -1,6 +1,5 @@
 # PMVHaven Enhancer
 
-[video](https://i.imgur.com/gLNcJUz.mp4)
 
 ## Features
 
