@@ -24,6 +24,7 @@ const defaultConfig = {
     // Direct CSS filter enhancement
     saturationBoost: 2.0,        // 1.0 = normal, 2.0 = 100% more saturated (double)
     contrastBoost: 1.1,          // 1.0 = normal, 1.1 = 10% more contrast
+    brightnessBoost: 1.0,  // 1.0 = normal, 1.2 = 20% brighter, 0.8 = 20% darker
     // Feature toggles
     enablePulsing: true,         // Set to false to disable the pulsing effect
     enableGlow: true,            // Set to false to disable the color glow effect
@@ -130,7 +131,7 @@ function initVideoEffects() {
             initSessionTracker();
         }
         if (config.debug) console.log('Video effects initialized');
-    }, 1000);
+    }, 200);
 }
 
 // Initialize QoL features
@@ -142,18 +143,18 @@ function initQolFeatures() {
             setTimeout(() => {
                 initDoubleTapSeek();
                 // monitorVideoNavigation is now called from within initDoubleTapSeek
-            }, 1000);
+            }, 200);
         }
     }
 
     // Initialize Focus Mode if enabled
     if (config.enableFocusMode) {
-        setTimeout(() => handleFocusMode(true), 1000);
+        setTimeout(() => handleFocusMode(true), 200);
     }
 
     // Initialize session tracker if enabled
     if (config.enableSessionTracker) {
-        setTimeout(initSessionTracker, 1000);
+        setTimeout(initSessionTracker, 200);
     }
 
     // Initialize zoom disable if enabled
@@ -178,7 +179,7 @@ function initQolFeatures() {
 
     // NEW: Initialize Fix Preview if enabled
     if (config.enableFixPreview && isTouchDevice() && !fixPreviewInitialized) {
-        setTimeout(initFixPreview, 1000);
+        setTimeout(initFixPreview, 200);
     }
 }
 
@@ -571,6 +572,12 @@ function setupMinimizeButton(panel) {
     if (!minimizeButton) return;
 
     minimizeButton.addEventListener('click', function () {
+        // Clear any pending timeouts first
+        if (displayTimeoutId) {
+            clearTimeout(displayTimeoutId);
+            displayTimeoutId = null;
+        }
+
         config.controlPanelVisible = !config.controlPanelVisible;
         panel.style.opacity = config.controlPanelVisible ? '1' : '0';
         panel.style.transform = config.controlPanelVisible ? 'scale(1)' : 'scale(0.8)';
@@ -580,11 +587,15 @@ function setupMinimizeButton(panel) {
 
         // If minimized, hide the panel completely
         if (!config.controlPanelVisible) {
-            setTimeout(() => {
+            displayTimeoutId = setTimeout(() => {
                 if (!config.controlPanelVisible) {
                     panel.style.display = 'none';
+                    displayTimeoutId = null;
                 }
             }, 300);
+        } else {
+            // Make sure it's visible if we're showing it
+            panel.style.display = 'block';
         }
 
         saveConfig();
@@ -926,6 +937,13 @@ function renderSaturationMenu() {
             <span id="contrast-value" class="value">${config.contrastBoost.toFixed(1)}</span>
         </div>
         
+        <div class="slider-row">
+            <span class="slider-label">Brightness</span>
+            <input type="range" id="brightness-slider" class="slider" 
+                   min="0.5" max="1.5" step="0.05" value="${config.brightnessBoost}">
+            <span id="brightness-value" class="value">${config.brightnessBoost.toFixed(1)}</span>
+        </div>
+        
         ${createBackButton()}
     `;
 
@@ -948,6 +966,14 @@ function setupSaturationSliders() {
     document.getElementById('contrast-slider').addEventListener('input', function () {
         config.contrastBoost = parseFloat(this.value);
         document.getElementById('contrast-value').textContent = config.contrastBoost.toFixed(1);
+        if (config.enableSaturation) {
+            applySettingsToAllVideos();
+        }
+    });
+    
+    document.getElementById('brightness-slider').addEventListener('input', function () {
+        config.brightnessBoost = parseFloat(this.value);
+        document.getElementById('brightness-value').textContent = config.brightnessBoost.toFixed(1);
         if (config.enableSaturation) {
             applySettingsToAllVideos();
         }
@@ -1077,7 +1103,6 @@ function handleFocusMode(enable) {
                     margin-top: 30vw !important;
                 }
             }
-                
             
             /* Base video styles */
             video, .v-responsive, .v-responsive__content, .v-img, iframe {
@@ -2561,6 +2586,8 @@ function createControlPanel() {
     renderMainMenu();
 }
 
+let displayTimeoutId = null;
+
 // Create the always visible "Show" button
 function createShowButton() {
     // Check if button already exists
@@ -2597,6 +2624,12 @@ function createShowButton() {
     // Add event listener to toggle the control panel
     button.addEventListener('click', function () {
         console.log("Show button clicked");
+
+        // Clear any pending timeouts first
+        if (displayTimeoutId) {
+            clearTimeout(displayTimeoutId);
+            displayTimeoutId = null;
+        }
 
         // If panel doesn't exist, create it and make sure it's visible
         if (!document.getElementById('video-effects-control')) {
@@ -2640,9 +2673,10 @@ function createShowButton() {
                 panel.style.transform = 'scale(0.8)';
 
                 // Hide after transition completes
-                setTimeout(() => {
+                displayTimeoutId = setTimeout(() => {
                     if (!config.controlPanelVisible) {
                         panel.style.display = 'none';
+                        displayTimeoutId = null;
                     }
                 }, 300);
             }
@@ -3432,6 +3466,10 @@ function getFilterString() {
 
     if (config.contrastBoost !== 1.0) {
         filters.push(`contrast(${config.contrastBoost})`);
+    }
+    
+    if (config.brightnessBoost !== 1.0) {
+        filters.push(`brightness(${config.brightnessBoost})`);
     }
 
     return filters.length > 0 ? filters.join(' ') : 'none';
