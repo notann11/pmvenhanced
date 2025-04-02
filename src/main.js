@@ -1,14 +1,14 @@
 /**
  * PMVHaven Enhanced
- * 1 April 2025
+ * 2 April 2025
 */
 
 // Default configuration
 const defaultConfig = {
     // General
-    sampleInterval: 100,         // Sampling interval for scene detection
+    sampleInterval: 50,         // Sampling interval for scene detection
     // Glow settings
-    glowSize: 200,               // Size of the glow effect in pixels
+    glowSize: 300,               // Size of the glow effect in pixels
     glowOpacity: 0.85,           // Opacity of the glow effect (0-1)
     colorBoost: 1.2,             // Color boost for the glow effect
     // Pulse settings
@@ -19,12 +19,12 @@ const defaultConfig = {
     // Scene detection parameters
     gridSize: 16,                // Divide video into NxN grid for sampling
     motionThreshold: 60,         // Threshold for motion detection
-    colorThreshold: 20,          // Color change threshold
-    sceneChangeConfidence: 0.45, // Percentage of grid cells that need to change to trigger scene change
+    colorThreshold: 40,          // Color change threshold
+    sceneChangeConfidence: 0.55, // Percentage of grid cells that need to change to trigger scene change
     // Direct CSS filter enhancement
-    saturationBoost: 2.0,        // 1.0 = normal, 2.0 = 100% more saturated (double)
-    contrastBoost: 1.1,          // 1.0 = normal, 1.1 = 10% more contrast
-    brightnessBoost: 1.0,  // 1.0 = normal, 1.2 = 20% brighter, 0.8 = 20% darker
+    saturationBoost: 1.0,        // 1.0 = normal, 2.0 = 100% more saturated (double)
+    contrastBoost: 1.0,          // 1.0 = normal, 1.1 = 10% more contrast
+    brightnessBoost: 1.0,         // 1.0 = normal, 1.2 = 20% brighter, 0.8 = 20% darker
     // Feature toggles
     enablePulsing: true,         // Set to false to disable the pulsing effect
     enableGlow: true,            // Set to false to disable the color glow effect
@@ -344,6 +344,7 @@ function detectSceneChange(currentGrid, previousGrid) {
     // 4. Return true if combined score exceeds our threshold
     return combinedScore >= config.sceneChangeConfidence;
 }
+
 
 function triggerPulsate(video) {
     // Skip if pulsing is disabled in config
@@ -970,7 +971,7 @@ function setupSaturationSliders() {
             applySettingsToAllVideos();
         }
     });
-    
+
     document.getElementById('brightness-slider').addEventListener('input', function () {
         config.brightnessBoost = parseFloat(this.value);
         document.getElementById('brightness-value').textContent = config.brightnessBoost.toFixed(1);
@@ -1198,7 +1199,6 @@ function removeDoubleTapSeek() {
 
     doubleTapInitialized = false;
 }
-
 
 // Set up QoL toggle event listeners
 function setupQolToggles() {
@@ -3467,7 +3467,7 @@ function getFilterString() {
     if (config.contrastBoost !== 1.0) {
         filters.push(`contrast(${config.contrastBoost})`);
     }
-    
+
     if (config.brightnessBoost !== 1.0) {
         filters.push(`brightness(${config.brightnessBoost})`);
     }
