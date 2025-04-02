@@ -24,11 +24,11 @@ const defaultConfig = {
     // Direct CSS filter enhancement
     saturationBoost: 1.0,        // 1.0 = normal, 2.0 = 100% more saturated (double)
     contrastBoost: 1.0,          // 1.0 = normal, 1.1 = 10% more contrast
-    brightnessBoost: 1.0,         // 1.0 = normal, 1.2 = 20% brighter, 0.8 = 20% darker
+    brightnessBoost: 1.0,        // 1.0 = normal, 1.2 = 20% brighter, 0.8 = 20% darker
     // Feature toggles
     enablePulsing: true,         // Set to false to disable the pulsing effect
     enableGlow: true,            // Set to false to disable the color glow effect
-    enableSaturation: true,      // Set to false to disable the saturation boost
+    enableSaturation: false,     // Set to false to disable the saturation boost
     enableFocusMode: false,      // New toggle for focus mode
     // UI settings
     controlPanelVisible: true,   // Control panel visibility
@@ -2551,23 +2551,23 @@ function createControlPanel() {
 
     // Add essential styling
     panel.style.cssText = `
-        position: fixed;
-        width: 300px;
-        background-color: rgba(0, 0, 0, 0.85);
-        color: white;
-        border-radius: 8px;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
-        z-index: 999991;
-        transition: opacity 0.3s, transform 0.3s;
-        font-family: Arial, sans-serif;
-        padding: 0;
-        overflow: hidden;
-        top: 100px;
-        left: 100px;
-        display: block;
-        opacity: ${config.controlPanelVisible ? '1' : '0'};
-        transform: ${config.controlPanelVisible ? 'scale(1)' : 'scale(0.8)'};
+    position: fixed;
+    width: 300px;
+    background-color: rgba(0, 0, 0);
+    color: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+    z-index: 999991;
+    transition: opacity 0.3s, transform 0.3s;
+    font-family: Arial, sans-serif;
+    overflow: hidden; /* Changed from hidden to visible */
+    top: 100px;
+    left: 100px;
+    display: block;
+    opacity: ${config.controlPanelVisible ? '1' : '0'};
+    transform: ${config.controlPanelVisible ? 'scale(1)' : 'scale(0.8)'};
     `;
+   
 
     document.body.appendChild(panel);
     console.log("Control panel added to document");
