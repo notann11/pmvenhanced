@@ -1,6 +1,7 @@
 /**
  * PMVHaven Enhanced
- * 2 April 2025
+ * 29 April 2025
+ * PMVHaven update fix
 */
 
 // Default configuration
@@ -345,10 +346,13 @@ function detectSceneChange(currentGrid, previousGrid) {
     return combinedScore >= config.sceneChangeConfidence;
 }
 
-
 function triggerPulsate(video) {
     // Skip if pulsing is disabled in config
     if (!config.enablePulsing) return;
+
+    // Find wrapper element
+    const videoWrapper = document.getElementById(`fluid_video_wrapper_${video.id}`);
+    if (!videoWrapper) return;
 
     // Check cooldown to avoid rapid pulsating
     const now = Date.now();
@@ -356,37 +360,37 @@ function triggerPulsate(video) {
         return;
     }
 
-    // NEW: Check if a pulse animation is already in progress
+    // Check if a pulse animation is already in progress
     if (video._pulseInProgress) {
         return;
     }
 
     // Remove any existing pulse effect classes (just to be safe)
-    video.classList.remove('video-pulse-scale', 'video-pulse-glow', 'video-pulse-fade', 'video-pulse-both', 'video-pulse-bpm');
+    videoWrapper.classList.remove('video-pulse-scale', 'video-pulse-glow', 'video-pulse-fade', 'video-pulse-both', 'video-pulse-bpm');
 
     // Set CSS variables for animation duration and scale
-    video.style.setProperty('--pulse-duration', `${config.pulsateDuration}ms`);
-    video.style.setProperty('--pulse-scale', `${config.pulsateScale}`);
+    videoWrapper.style.setProperty('--pulse-duration', `${config.pulsateDuration}ms`);
+    videoWrapper.style.setProperty('--pulse-scale', `${config.pulsateScale}`);
 
-    // Apply the pulse effect class
+    // Apply the pulse effect class to the wrapper
     const pulseClass = `video-pulse-${config.pulseEffect}`;
-    video.classList.add(pulseClass);
+    videoWrapper.classList.add(pulseClass);
 
     // Special handling for BPM mode
     if (config.pulseEffect === 'bpm') {
-        video.style.setProperty('--pulse-bpm-scale', `${config.pulsateScale}`);
+        videoWrapper.style.setProperty('--pulse-bpm-scale', `${config.pulsateScale}`);
     }
 
     // Update timestamp for cooldown
     video._lastPulsateTime = now;
 
-    // NEW: Set flag that pulse is in progress
+    // Set flag that pulse is in progress
     video._pulseInProgress = true;
 
     // Remove class after animation completes and reset flag
     setTimeout(() => {
-        video.classList.remove(pulseClass);
-        // NEW: Reset the in-progress flag when animation completes
+        videoWrapper.classList.remove(pulseClass);
+        // Reset the in-progress flag when animation completes
         video._pulseInProgress = false;
     }, config.pulsateDuration);
 
@@ -394,6 +398,10 @@ function triggerPulsate(video) {
 }
 
 function updateVideoMonitor(video) {
+    // Find video wrapper
+    const videoWrapper = document.getElementById('fluid_video_wrapper_VideoPlayer');
+    if (!videoWrapper) return;
+    
     // Store original filter
     const originalFilter = video.style.filter;
 
@@ -412,11 +420,12 @@ function updateVideoMonitor(video) {
 
     const { grid, avgColor } = result;
 
-    // Apply the glow effect using the average color (if enabled)
+    // Apply the glow effect to the wrapper instead of the video element
     if (config.enableGlow) {
-        video.style.boxShadow = `0 0 ${config.glowSize}px rgba(${avgColor.r}, ${avgColor.g}, ${avgColor.b}, ${config.glowOpacity})`;
+        videoWrapper.style.boxShadow = `0 0 ${config.glowSize}px rgba(${avgColor.r}, ${avgColor.g}, ${avgColor.b}, ${config.glowOpacity})`;
+        videoWrapper.style.transition = `box-shadow ${config.sampleInterval}ms ease-in-out`;
     } else {
-        video.style.boxShadow = 'none';
+        videoWrapper.style.boxShadow = 'none';
     }
 
     // Check for scene change if we have previous grid data
@@ -425,14 +434,19 @@ function updateVideoMonitor(video) {
         if (detectSceneChange(grid, video._lastGrid)) {
             triggerPulsate(video);
         }
-
-        // NO separate "first to report wins" check for color change
-        // Now using just the one combined scoring system
     }
 
     // Save current data for next comparison
     video._lastGrid = grid;
     video._lastAvgColor = avgColor;
+}
+
+function debounce(func, wait) {
+    let timeout;
+    return function () {
+        clearTimeout(timeout);
+        timeout = setTimeout(func, wait);
+    };
 }
 
 function cleanupVideo(video) {
@@ -458,9 +472,10 @@ function processVideo(video) {
 
     video.style.transformOrigin = 'center center';
 
-    // Apply transition style for glow effect
-    if (config.enableGlow) {
-        video.style.transition = `box-shadow ${config.sampleInterval}ms ease-in-out`;
+    // Find video wrapper and apply transition for glow effect
+    const videoWrapper = document.getElementById('fluid_video_wrapper_VideoPlayer');
+    if (videoWrapper && config.enableGlow) {
+        videoWrapper.style.transition = `box-shadow ${config.sampleInterval}ms ease-in-out`;
     }
 
     // Apply CSS filters for saturation boost
@@ -2567,7 +2582,7 @@ function createControlPanel() {
     opacity: ${config.controlPanelVisible ? '1' : '0'};
     transform: ${config.controlPanelVisible ? 'scale(1)' : 'scale(0.8)'};
     `;
-   
+
 
     document.body.appendChild(panel);
     console.log("Control panel added to document");
@@ -3415,10 +3430,19 @@ function monitorVideoNavigation() {
 // Apply changes to all videos when settings change
 function applySettingsToAllVideos() {
     document.querySelectorAll('video').forEach(video => {
-        // Apply or remove glow effect
-        if (config.enableGlow) {
-            video.style.transition = `box-shadow ${config.sampleInterval}ms ease-in-out`;
+        // Find the wrapper for this video
+        const videoId = video.id;
+        const videoWrapper = document.getElementById(`fluid_video_wrapper_${videoId}`);
+        
+        // Apply or remove glow effect to wrapper
+        if (config.enableGlow && videoWrapper) {
+            videoWrapper.style.transition = `box-shadow ${config.sampleInterval}ms ease-in-out`;
             // The actual color is set in updateVideoMonitor
+        } else if (videoWrapper) {
+            videoWrapper.style.boxShadow = 'none';
+        } else if (config.enableGlow) {
+            // Fallback to video element if wrapper not found
+            video.style.transition = `box-shadow ${config.sampleInterval}ms ease-in-out`;
         } else {
             video.style.boxShadow = 'none';
         }
