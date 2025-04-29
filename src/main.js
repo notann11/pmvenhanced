@@ -7,7 +7,7 @@
 // Default configuration
 const defaultConfig = {
     // General
-    sampleInterval: 50,         // Sampling interval for scene detection
+    sampleInterval: 100,         // Sampling interval for scene detection
     // Glow settings
     glowSize: 300,               // Size of the glow effect in pixels
     glowOpacity: 0.85,           // Opacity of the glow effect (0-1)
@@ -36,9 +36,6 @@ const defaultConfig = {
     controlPanelPosition: 'center', // 'top-left', 'top-right', 'bottom-left', 'bottom-right'
     activeSection: 'main',       // Which section is currently visible
     // QoL Settings
-    enableDoubleTapSeek: false,  // Double-tap to seek forward/backward
-    skipTimeInSeconds: 10,       // How many seconds to skip
-    doubleTapThreshold: 300,     // Double-tap detection threshold in ms
     enableZoomDisable: false,    // New toggle to disable double-tap zoom
     enableSortByRating: false,   // New toggle for sorting videos by rating
     enableFixPreview: false,     // Default to disabled
@@ -88,16 +85,6 @@ const gifConfig = {
     blobUrl: null
 };
 
-// Global variables for double-tap functionality
-let doubleTapCanvas = null;
-let doubleTapVideoElement = null;
-let doubleTapInitialized = false;
-let lastTap = {
-    time: 0,
-    x: 0,
-    y: 0
-};
-
 // Session tracker constants
 const SESSION_UPDATE_INTERVAL = 1000; // 1 second in milliseconds
 const SESSION_RESET_THRESHOLD = 15 * 60 * 1000; // 15 minutes in milliseconds
@@ -137,16 +124,6 @@ function initVideoEffects() {
 
 // Initialize QoL features
 function initQolFeatures() {
-    // If double-tap seeking is enabled, initialize it
-    if (config.enableDoubleTapSeek && isTouchDevice()) {
-        // Set a one-time initialization
-        if (!window.doubleTapInitialized) {
-            setTimeout(() => {
-                initDoubleTapSeek();
-                // monitorVideoNavigation is now called from within initDoubleTapSeek
-            }, 200);
-        }
-    }
 
     // Initialize Focus Mode if enabled
     if (config.enableFocusMode) {
@@ -161,21 +138,6 @@ function initQolFeatures() {
     // Initialize zoom disable if enabled
     if (config.enableZoomDisable) {
         handleZoomDisable(true);
-    }
-
-    // Initialize sort by rating if enabled
-    if (config.enableSortByRating && !sortingInitialized) {
-        // Start URL monitoring regardless of current page
-        currentSortUrl = window.location.href;
-        monitorUrlForSorting();
-
-        // Only initialize the actual sorting if we're on a search page
-        if (isSearchPage()) {
-            setTimeout(initSortByRating, 1000);
-        } else {
-            // Mark as initialized to prevent duplicate initialization
-            sortingInitialized = true;
-        }
     }
 
     // NEW: Initialize Fix Preview if enabled
@@ -401,7 +363,7 @@ function updateVideoMonitor(video) {
     // Find video wrapper
     const videoWrapper = document.getElementById('fluid_video_wrapper_VideoPlayer');
     if (!videoWrapper) return;
-    
+
     // Store original filter
     const originalFilter = video.style.filter;
 
@@ -422,6 +384,7 @@ function updateVideoMonitor(video) {
 
     // Apply the glow effect to the wrapper instead of the video element
     if (config.enableGlow) {
+        videoWrapper.style.zIndex = `999`;
         videoWrapper.style.boxShadow = `0 0 ${config.glowSize}px rgba(${avgColor.r}, ${avgColor.g}, ${avgColor.b}, ${config.glowOpacity})`;
         videoWrapper.style.transition = `box-shadow ${config.sampleInterval}ms ease-in-out`;
     } else {
@@ -1006,16 +969,6 @@ function renderQolSettingsMenu() {
         ${createTitleBar('Quality of Life Settings')}
         
         <div class="toggle-row" ${!isTouchDevice() ? 'title="This feature requires a touch device"' : ''}>
-            <span class="toggle-label">Double-tap Seek</span>
-            <label class="toggle-switch ${!isTouchDevice() ? 'disabled' : ''}">
-                <input type="checkbox" id="double-tap-toggle" 
-                       ${config.enableDoubleTapSeek ? 'checked' : ''} 
-                       ${!isTouchDevice() ? 'disabled' : ''}>
-                <span class="toggle-slider"></span>
-            </label>
-        </div>
-        
-        <div class="toggle-row" ${!isTouchDevice() ? 'title="This feature requires a touch device"' : ''}>
             <span class="toggle-label">Disable Zoom</span>
             <label class="toggle-switch ${!isTouchDevice() ? 'disabled' : ''}">
                 <input type="checkbox" id="zoom-disable-toggle" 
@@ -1031,16 +984,6 @@ function renderQolSettingsMenu() {
             <label class="toggle-switch">
                 <input type="checkbox" id="session-tracker-toggle" 
                        ${config.enableSessionTracker ? 'checked' : ''}>
-                <span class="toggle-slider"></span>
-            </label>
-        </div>
-        
-        <!-- NEW: Sort by Rating Toggle -->
-        <div class="toggle-row">
-            <span class="toggle-label">Sort by Rating</span>
-            <label class="toggle-switch">
-                <input type="checkbox" id="sort-by-rating-toggle" 
-                       ${config.enableSortByRating ? 'checked' : ''}>
                 <span class="toggle-slider"></span>
             </label>
         </div>
@@ -1185,57 +1128,10 @@ function handleFocusMode(enable) {
     }
 }
 
-// Remove double-tap seeking functionality
-function removeDoubleTapSeek() {
-    if (!doubleTapInitialized && !doubleTapCanvas) return;
-
-    // Clear the monitoring interval if it exists
-    if (window.doubleTapMonitorInterval) {
-        clearInterval(window.doubleTapMonitorInterval);
-        window.doubleTapMonitorInterval = null;
-    }
-
-    if (doubleTapCanvas && doubleTapCanvas.parentNode) {
-        // Remove event listeners
-        doubleTapCanvas.removeEventListener('touchstart', handleDoubleTapTouch);
-        doubleTapCanvas.removeEventListener('touchend', handleDoubleTapTouch);
-
-        // Remove canvas
-        doubleTapCanvas.parentNode.removeChild(doubleTapCanvas);
-        doubleTapCanvas = null;
-    }
-
-    // Reset any other state variables
-    lastTap = {
-        time: 0,
-        x: 0,
-        y: 0
-    };
-
-    doubleTapInitialized = false;
-}
-
 // Set up QoL toggle event listeners
 function setupQolToggles() {
     // Double-tap toggle event listener
-    const doubleTapToggle = document.getElementById('double-tap-toggle');
-    if (doubleTapToggle) {
-        doubleTapToggle.addEventListener('change', function () {
-            const wasEnabled = config.enableDoubleTapSeek;
-            config.enableDoubleTapSeek = this.checked;
 
-            // Initialize or remove based on new state
-            if (config.enableDoubleTapSeek && !wasEnabled) {
-                // If enabling, initialize
-                initDoubleTapSeek();
-            } else if (!config.enableDoubleTapSeek && wasEnabled) {
-                // If disabling, remove event listeners and canvas
-                removeDoubleTapSeek();
-            }
-
-            saveConfig();
-        });
-    }
     // Add Fix Preview toggle event listener
     const fixPreviewToggle = document.getElementById('fix-preview-toggle');
     if (fixPreviewToggle) {
@@ -1284,25 +1180,6 @@ function setupQolToggles() {
                 // If disabling, stop the tracker and remove the display
                 stopSessionTracking();
                 removeSessionTimerDisplay();
-            }
-
-            saveConfig();
-        });
-    }
-
-    // Add sort by rating toggle event listener
-    const sortByRatingToggle = document.getElementById('sort-by-rating-toggle');
-    if (sortByRatingToggle) {
-        sortByRatingToggle.addEventListener('change', function () {
-            config.enableSortByRating = this.checked;
-            console.log("Sort by rating " + (config.enableSortByRating ? "enabled" : "disabled"));
-
-            if (config.enableSortByRating) {
-                // Initialize if needed
-                initSortByRating();
-            } else {
-                // Remove sorting if active
-                removeSortByRating();
             }
 
             saveConfig();
@@ -1741,7 +1618,7 @@ function handleTouchStart(e) {
 
             currentVideoOverlay = videoOverlay;
         }
-    }, 300); // Reduced long press threshold to 300ms as you mentioned
+    }, 20);
 }
 
 
@@ -1945,38 +1822,6 @@ function setupResizeHandling() {
     });
 }
 
-function removeSortByRating() {
-    if (!sortingInitialized) return;
-
-    console.log("Removing Sort by Rating feature");
-
-    // Disconnect the observer
-    if (sortRatingObserver) {
-        sortRatingObserver.disconnect();
-        sortRatingObserver = null;
-    }
-
-    // Remove scroll event listener
-    window.removeEventListener('scroll', debouncedSortCheck);
-
-    // Remove the styling
-    const sortingStyle = document.getElementById('pmvhaven-sort-styles');
-    if (sortingStyle) {
-        sortingStyle.remove();
-    }
-
-    // Show all containers that might be hidden
-    document.querySelectorAll(
-        '.v-col-sm-6.v-col-md-4.v-col-lg-4.v-col-12, ' +
-        '.v-col-sm-6.v-col-md-4.v-col-lg-2.v-col-12'
-    ).forEach(container => {
-        container.classList.add('pmv-containers-ready');
-    });
-
-    sortingInitialized = false;
-    lastSortedCount = 0;
-}
-
 function applySortingStyles() {
     // Add CSS for hiding video containers initially
     if (!document.getElementById('pmvhaven-sort-styles')) {
@@ -1994,252 +1839,6 @@ function applySortingStyles() {
         `;
         document.head.appendChild(style);
     }
-}
-
-function sortVideosByRating() {
-    // Don't sort if feature is disabled
-    if (!config.enableSortByRating) {
-        console.log("Sort by rating is disabled");
-        return;
-    }
-
-    // Then check if we're on a search page
-    if (!isSearchPage()) {
-        console.log("Not on a search page, not sorting");
-        return;
-    }
-
-    // Prevent concurrent sorting operations
-    if (isSorting) return;
-
-    isSorting = true;
-    console.log("Sorting videos by rating...");
-
-    // Get all video container elements - support both mobile and desktop layouts
-    const videoContainers = document.querySelectorAll(
-        '.v-col-sm-6.v-col-md-4.v-col-lg-4.v-col-12, ' +
-        '.v-col-sm-6.v-col-md-4.v-col-lg-2.v-col-12'
-    );
-
-    if (videoContainers.length === 0) {
-        isSorting = false;
-        return;
-    }
-
-    // If we haven't added many new videos, don't bother resorting
-    if (videoContainers.length <= lastSortedCount + 3 && lastSortedCount > 0) {
-        isSorting = false;
-        return;
-    }
-
-    // Create an array to store video containers with their ratings
-    const videosWithRatings = [];
-
-    // Extract ratings and store with container reference
-    videoContainers.forEach((container, index) => {
-        // Try multiple approaches to find the rating element
-        // Approach 1: Check for paragraphs with star icon in responsive content
-        const paragraphs = container.querySelectorAll('.v-responsive__content p');
-        let ratingElement = null;
-
-        paragraphs.forEach(p => {
-            if (p.innerHTML.includes('mdi-star') || p.innerHTML.includes('fa-star')) {
-                ratingElement = p;
-            }
-        });
-
-        // Approach 2: Look for orange-colored text about ratings
-        if (!ratingElement) {
-            ratingElement = container.querySelector('p[style*="color: orange"][style*="bottom: 3px"]');
-        }
-
-        // Approach 3: Look for any element with mdi-star class
-        if (!ratingElement) {
-            const starIcon = container.querySelector('.mdi-star');
-            if (starIcon && starIcon.parentElement) {
-                ratingElement = starIcon.parentElement;
-            }
-        }
-
-        if (ratingElement) {
-            // Get the text content
-            const ratingHTML = ratingElement.innerHTML;
-            const ratingText = ratingElement.textContent.trim();
-            let rating = 0;
-
-            // Try different patterns to extract the rating
-            // Pattern 1: Extract from text content (e.g. "4.7 / 5" or "0 / 5")
-            let ratingMatch = ratingText.match(/(\d+(?:\.\d+)?)\s*\/\s*5/);
-
-            if (ratingMatch && ratingMatch[1]) {
-                rating = parseFloat(ratingMatch[1]);
-            } else {
-                // Pattern 2: Extract number after the icon closing tag
-                ratingMatch = ratingHTML.match(/<\/i>([0-9]+(?:\.[0-9]+)?)/);
-
-                if (ratingMatch && ratingMatch[1]) {
-                    rating = parseFloat(ratingMatch[1]);
-                } else {
-                    // Pattern 3: Extract any decimal number as a fallback
-                    ratingMatch = ratingText.match(/(\d+(?:\.\d+)?)/);
-
-                    if (ratingMatch && ratingMatch[1]) {
-                        rating = parseFloat(ratingMatch[1]);
-                    }
-                }
-            }
-
-            // Always include the video, even with rating 0
-            videosWithRatings.push({
-                container: container,
-                rating: rating,
-                index: index
-            });
-        }
-    });
-
-    // Sort by rating (highest first, but 0 ratings at the bottom)
-    videosWithRatings.sort((a, b) => {
-        // Special handling for 0 ratings - they should always be at the bottom
-        if (a.rating === 0 && b.rating === 0) return 0; // Both 0, keep original order
-        if (a.rating === 0) return 1; // A is 0, put it after B
-        if (b.rating === 0) return -1; // B is 0, put it after A
-
-        // Normal comparison for non-zero ratings (highest first)
-        return b.rating - a.rating;
-    });
-
-    // Get the parent container where all videos are displayed
-    if (videosWithRatings.length > 0) {
-        const parentContainer = videoContainers[0].parentNode;
-
-        // Reinsert the containers in sorted order
-        videosWithRatings.forEach(item => {
-            parentContainer.appendChild(item.container);
-
-            // Make sure the containers are visible
-            item.container.classList.add('pmv-containers-ready');
-        });
-
-        // Update our count of sorted videos
-        lastSortedCount = videoContainers.length;
-
-        if (config.debug) {
-            console.log(`Sorted ${videoContainers.length} videos by rating`);
-        }
-    }
-
-    // Reset sorting flag
-    isSorting = false;
-}
-
-let currentSortUrl = window.location.href;
-
-function isSearchPageUrl(url) {
-    return url.startsWith('https://pmvhaven.com/search/');
-}
-
-// Add this function to monitor URL changes
-function monitorUrlForSorting() {
-    // If URL changed, we need to handle the change
-    if (currentSortUrl !== window.location.href) {
-        const wasSearchPage = isSearchPageUrl(currentSortUrl);
-        const isNowSearchPage = isSearchPageUrl(window.location.href);
-
-        // Store the new URL
-        currentSortUrl = window.location.href;
-
-        if (config.debug) {
-            console.log('URL changed to:', currentSortUrl,
-                'Was search:', wasSearchPage,
-                'Is now search:', isNowSearchPage);
-        }
-
-        // Case 1: Navigated FROM search page TO non-search page
-        if (wasSearchPage && !isNowSearchPage) {
-            // Make all videos visible
-            document.querySelectorAll(
-                '.v-col-sm-6.v-col-md-4.v-col-lg-4.v-col-12, ' +
-                '.v-col-sm-6.v-col-md-4.v-col-lg-2.v-col-12'
-            ).forEach(container => {
-                container.classList.add('pmv-containers-ready');
-            });
-        }
-        // Case 2: Navigated FROM non-search page TO search page
-        else if (!wasSearchPage && isNowSearchPage && config.enableSortByRating) {
-            // If we weren't initialized before, initialize now
-            if (!sortingInitialized) {
-                initSortByRating();
-            } else {
-                // Reset sorting state
-                lastSortedCount = 0;
-
-                // Apply styles again
-                applySortingStyles();
-
-                // Hide all current containers
-                document.querySelectorAll(
-                    '.v-col-sm-6.v-col-md-4.v-col-lg-4.v-col-12, ' +
-                    '.v-col-sm-6.v-col-md-4.v-col-lg-2.v-col-12'
-                ).forEach(container => {
-                    container.classList.remove('pmv-containers-ready');
-                });
-
-                // Trigger sorting
-                setTimeout(sortVideosByRating, 1000);
-            }
-        }
-        // Case 3: Navigated between search pages
-        else if (wasSearchPage && isNowSearchPage && config.enableSortByRating) {
-            // Reset sorting state
-            lastSortedCount = 0;
-
-            // Hide all current containers
-            document.querySelectorAll(
-                '.v-col-sm-6.v-col-md-4.v-col-lg-4.v-col-12, ' +
-                '.v-col-sm-6.v-col-md-4.v-col-lg-2.v-col-12'
-            ).forEach(container => {
-                container.classList.remove('pmv-containers-ready');
-            });
-
-            // Trigger sorting
-            setTimeout(sortVideosByRating, 1000);
-        }
-    }
-
-    // Continue checking for URL changes
-    requestAnimationFrame(monitorUrlForSorting);
-}
-
-function setupSortingObserver() {
-    // Create a mutation observer to detect when new videos are loaded
-    sortRatingObserver = new MutationObserver((mutations) => {
-        if (!config.enableSortByRating || !isSearchPage()) return;
-
-        let shouldResort = false;
-
-        mutations.forEach(mutation => {
-            // Check if nodes were added
-            if (mutation.addedNodes.length > 0) {
-                // Check if any added nodes are video containers or contain them
-                for (let i = 0; i < mutation.addedNodes.length; i++) {
-                    const node = mutation.addedNodes[i];
-                    if (isOrContainsVideoContainer(node)) {
-                        shouldResort = true;
-                        break;
-                    }
-                }
-            }
-        });
-
-        if (shouldResort) {
-            // Use the debounced version to prevent rapid consecutive sorts
-            debouncedSort();
-        }
-    });
-
-    // Start observing the document body for changes
-    sortRatingObserver.observe(document.body, { childList: true, subtree: true });
 }
 
 // Function to determine if an element is a video container
@@ -2272,26 +1871,6 @@ function isOrContainsVideoContainer(node) {
 
     return false;
 }
-
-// Debounced version of the sort function
-const debouncedSort = debounce(sortVideosByRating, 1000);
-
-// Check if we need to sort after scrolling
-function checkForNewVideosAfterScroll() {
-    if (!config.enableSortByRating || !isSearchPage()) return;
-
-    const currentCount = document.querySelectorAll(
-        '.v-col-sm-6.v-col-md-4.v-col-lg-4.v-col-12, ' +
-        '.v-col-sm-6.v-col-md-4.v-col-lg-2.v-col-12'
-    ).length;
-
-    if (currentCount > lastSortedCount) {
-        sortVideosByRating();
-    }
-}
-
-// Debounced version of the scroll check
-const debouncedSortCheck = debounce(checkForNewVideosAfterScroll, 500);
 
 // GIF menu
 function renderGifMenu() {
@@ -2547,7 +2126,6 @@ function injectMenuStyles() {
 
     document.head.appendChild(style);
 }
-
 
 // Create the control panel
 function createControlPanel() {
@@ -2909,523 +2487,8 @@ function formatSessionDuration(duration) {
 /**************************************
  * 5. UTILITY FUNCTIONS
  **************************************/
-function createDoubleTapCanvas() {
-    // Create canvas element
-    doubleTapCanvas = document.createElement('canvas');
-    doubleTapCanvas.id = 'double-tap-canvas';
-    doubleTapCanvas.style.cssText = `
-        position: absolute;
-        pointer-events: auto;
-        z-index: 999990;
-        background-color: transparent;
-    `;
 
-    // Add the canvas to the page
-    document.body.appendChild(doubleTapCanvas);
 
-    // Add touch event listeners to canvas - now including touchmove
-    doubleTapCanvas.addEventListener('touchstart', handleDoubleTapTouch, { passive: true });
-    doubleTapCanvas.addEventListener('touchmove', handleDoubleTapTouch, { passive: false });
-    doubleTapCanvas.addEventListener('touchend', handleDoubleTapTouch, { passive: false });
-}
-
-// Update the lastTap object to include start position for scroll detection
-lastTap = {
-    time: 0,
-    x: 0,
-    y: 0,
-    startX: 0, // New property to track touch start for scroll detection
-    startY: 0  // New property to track touch start for scroll detection
-};
-
-function handleDoubleTapTouch(event) {
-    // Get touch information
-    const touch = event.touches[0] || event.changedTouches[0];
-    const touchY = touch.clientY;
-    const touchX = touch.clientX;
-    const videoRect = doubleTapVideoElement.getBoundingClientRect();
-
-    // Consider the bottom 25% of the video to be the control area
-    const controlAreaThreshold = videoRect.height * 0.75;
-    const isInControlArea = (touchY - videoRect.top) > controlAreaThreshold;
-
-    // If touch is in control area, let it pass through to video controls
-    if (isInControlArea) {
-        doubleTapCanvas.style.pointerEvents = 'none';
-
-        // Re-enable canvas after a short delay
-        setTimeout(() => {
-            if (doubleTapCanvas) {
-                doubleTapCanvas.style.pointerEvents = 'auto';
-            }
-        }, 1000); // Allow enough time to interact with controls
-
-        return; // Don't preventDefault, let event pass through
-    }
-
-    // NEW SCROLL DETECTION CODE
-    // For touchstart events, just record the initial position but don't prevent default
-    if (event.type === 'touchstart') {
-        // Store initial Y position for scroll detection
-        lastTap.startY = touchY;
-        lastTap.startX = touchX;
-        return; // Allow event to continue for potential scrolling
-    }
-
-    // For touchmove events, we need to detect if this is a scroll vs a tap
-    if (event.type === 'touchmove') {
-        // Calculate vertical movement
-        const deltaY = Math.abs(touchY - lastTap.startY);
-        const deltaX = Math.abs(touchX - lastTap.startX);
-
-        // If moved more than threshold, this is a scroll, not a tap
-        if (deltaY > 10 || deltaX > 10) {
-            // Don't interfere with scroll
-            return;
-        }
-
-        // If it's a small movement but not clearly a scroll yet, prevent default
-        // to avoid both scrolling and tapping
-        event.preventDefault();
-        return;
-    }
-
-    // For touchend events, continue with double-tap detection
-    if (event.type === 'touchend') {
-        // Calculate movement to confirm this was a tap, not a scroll
-        const deltaY = Math.abs(touchY - lastTap.startY);
-        const deltaX = Math.abs(touchX - lastTap.startX);
-
-        // If moved too much, this was a scroll attempt, not a tap
-        if (deltaY > 10 || deltaX > 10) {
-            return; // Let scroll happen naturally
-        }
-
-        // This was a tap (not a scroll), so we can safely prevent default
-        event.preventDefault();
-        event.stopPropagation();
-
-        const currentTime = new Date().getTime();
-
-        // Check if it's a double tap
-        const isDoubleTap = (
-            currentTime - lastTap.time < config.doubleTapThreshold &&
-            Math.abs(touchX - lastTap.x) < 40 &&
-            Math.abs(touchY - lastTap.y) < 40
-        );
-
-        if (isDoubleTap) {
-            // This is a double tap
-            const canvasWidth = doubleTapCanvas.width;
-            const relativeX = touchX - doubleTapCanvas.getBoundingClientRect().left;
-            const tapSide = relativeX < canvasWidth / 2 ? 'left' : 'right';
-
-            // Process the skip
-            if (tapSide === 'left') {
-                // Skip backward
-                doubleTapVideoElement.currentTime = Math.max(0, doubleTapVideoElement.currentTime - config.skipTimeInSeconds);
-                drawDoubleTapFeedback('◀◀ ' + config.skipTimeInSeconds + 's');
-            } else {
-                // Skip forward
-                doubleTapVideoElement.currentTime = Math.min(doubleTapVideoElement.duration, doubleTapVideoElement.currentTime + config.skipTimeInSeconds);
-                drawDoubleTapFeedback('▶▶ ' + config.skipTimeInSeconds + 's');
-            }
-
-            // Reset tap tracking
-            lastTap.time = 0;
-        } else {
-            // This is a first tap
-            lastTap.time = currentTime;
-            lastTap.x = touchX;
-            lastTap.y = touchY;
-
-            // Forward the tap to the video after a delay to allow double-tap detection
-            setTimeout(() => {
-                if (currentTime === lastTap.time) {
-                    // It was a single tap (not part of a double-tap sequence)
-                    forwardTapToVideo(touchX, touchY);
-                }
-            }, config.doubleTapThreshold + 10);
-        }
-    }
-}
-
-// Position canvas over video, but exclude control area
-function positionDoubleTapCanvas() {
-    if (!doubleTapVideoElement || !doubleTapCanvas) return;
-
-    // Check if video element is still valid and in the DOM
-    if (!document.contains(doubleTapVideoElement)) {
-        console.log("Video element no longer in DOM, looking for new video");
-        const newVideo = document.getElementById('VideoPlayer');
-        if (newVideo) {
-            doubleTapVideoElement = newVideo;
-        } else {
-            return; // No video to position for
-        }
-    }
-
-    const videoRect = doubleTapVideoElement.getBoundingClientRect();
-
-    // Only position if video has a valid size
-    if (videoRect.width <= 0 || videoRect.height <= 0) return;
-
-    // Only cover the top 80% of the video, leaving bottom 25% for controls
-    const controlsHeight = videoRect.height * 0.25;
-
-    doubleTapCanvas.style.position = 'fixed';
-    doubleTapCanvas.style.left = videoRect.left + 'px';
-    doubleTapCanvas.style.top = videoRect.top + 'px';
-    doubleTapCanvas.width = videoRect.width;
-    doubleTapCanvas.height = videoRect.height - controlsHeight; // Exclude control area
-
-    // Make sure canvas is visible and capturing touches
-    doubleTapCanvas.style.display = 'block';
-}
-
-function setupDoubleTapObservers() {
-    // Reposition on resize
-    window.addEventListener('resize', positionDoubleTapCanvas);
-
-    // Reposition on scroll
-    window.addEventListener('scroll', positionDoubleTapCanvas);
-
-    // Watch for video changes
-    const resizeObserver = new ResizeObserver(() => {
-        positionDoubleTapCanvas();
-    });
-
-    if (doubleTapVideoElement) {
-        resizeObserver.observe(doubleTapVideoElement);
-    }
-
-    // Use a debounced observer to reduce excessive checks
-    let videoCheckTimeout = null;
-    let lastCheck = 0;
-
-    const observer = new MutationObserver((mutations) => {
-        // Only check every 500ms at most to prevent excessive processing
-        const now = Date.now();
-        if (now - lastCheck < 500) {
-            // Clear any pending timeout
-            if (videoCheckTimeout) {
-                clearTimeout(videoCheckTimeout);
-            }
-
-            // Schedule a check after the cooldown period
-            videoCheckTimeout = setTimeout(() => {
-                checkVideoElement();
-                videoCheckTimeout = null;
-            }, 500 - (now - lastCheck));
-
-            return;
-        }
-
-        // Do the actual check
-        checkVideoElement();
-    });
-
-    function checkVideoElement() {
-        lastCheck = Date.now();
-
-        // Only run this check if the feature is enabled
-        if (!config.enableDoubleTapSeek) return;
-
-        // Check if the video element is still valid
-        const currentVideo = document.getElementById('VideoPlayer');
-
-        // Completely different situation - no current video
-        if (!currentVideo) return;
-
-        // If our reference is gone or different from current video
-        if (!doubleTapVideoElement || !document.contains(doubleTapVideoElement) ||
-            doubleTapVideoElement !== currentVideo) {
-
-            // Clean up old resources
-            if (doubleTapCanvas && doubleTapCanvas.parentNode) {
-                doubleTapCanvas.parentNode.removeChild(doubleTapCanvas);
-                doubleTapCanvas = null;
-            }
-
-            // Update video reference
-            doubleTapVideoElement = currentVideo;
-
-            // Setup observers for the new video
-            resizeObserver.observe(doubleTapVideoElement, { box: 'border-box' });
-
-            // Reset initialization and wait for play
-            doubleTapInitialized = false;
-
-            // Set up play event for the new video
-            const newPlayHandler = function () {
-                if (!doubleTapInitialized) {
-                    createDoubleTapCanvas();
-                    positionDoubleTapCanvas();
-                    doubleTapInitialized = true;
-                }
-                doubleTapVideoElement.removeEventListener('play', newPlayHandler);
-            };
-
-            doubleTapVideoElement.addEventListener('play', newPlayHandler);
-
-            // If the video is already playing, trigger the handler immediately
-            if (!doubleTapVideoElement.paused) {
-                newPlayHandler();
-            }
-        }
-    }
-
-    observer.observe(document.body, {
-        childList: true,
-        subtree: true,
-        attributes: false,
-        characterData: false
-    });
-
-    // Reposition periodically to handle player UI changes
-    setInterval(positionDoubleTapCanvas, 1000);
-}
-
-function drawDoubleTapFeedback(text) {
-    if (!doubleTapCanvas) return;
-
-    // Instead of drawing on the canvas which moves with the video during pulse effects,
-    // let's create a fixed overlay element
-
-    // Remove any existing feedback elements
-    const existingFeedback = document.getElementById('double-tap-feedback');
-    if (existingFeedback) {
-        existingFeedback.remove();
-    }
-
-    // Determine if this is forward or backward
-    const isForward = text.includes('▶▶');
-
-    // Extract seconds value
-    const seconds = text.match(/\d+/)[0];
-
-    // Create a new fixed position element
-    const feedbackElement = document.createElement('div');
-    feedbackElement.id = 'double-tap-feedback';
-
-    // Style the element
-    feedbackElement.style.cssText = `
-        position: fixed;
-        padding: 6px 10px;
-        background-color: rgba(0, 0, 0, 0.7);
-        color: white;
-        font-size: 13px;
-        border-radius: 5px;
-        z-index: 999999;
-        pointer-events: none;
-        transition: opacity 0.5s ease;
-        text-align: center;
-        min-width: 50px;
-    `;
-
-    // Get video position
-    const videoRect = doubleTapVideoElement.getBoundingClientRect();
-
-    // Position based on direction (left or right side of video)
-    const margin = 20; // Distance from edge of video
-
-    if (isForward) {
-        // Right side for forward
-        feedbackElement.style.left = `${videoRect.right - 80 - margin}px`;
-    } else {
-        // Left side for backward
-        feedbackElement.style.left = `${videoRect.left + margin}px`;
-    }
-
-    // Vertical center of video
-    feedbackElement.style.top = `${videoRect.top + (videoRect.height / 2) - 16}px`;
-
-    // Set content with appropriate direction indication
-    feedbackElement.textContent = isForward ? `+${seconds}s` : `-${seconds}s`;
-
-    // Add to document
-    document.body.appendChild(feedbackElement);
-
-    // Fade out and remove after delay
-    setTimeout(() => {
-        feedbackElement.style.opacity = '0';
-        setTimeout(() => {
-            if (feedbackElement.parentNode) {
-                feedbackElement.parentNode.removeChild(feedbackElement);
-            }
-        }, 500); // Wait for fade transition to complete
-    }, 500);
-}
-
-function forwardTapToVideo(x, y) {
-    if (!doubleTapVideoElement) return;
-
-    // Create and dispatch touch events to the video
-    try {
-        let touchObj = new Touch({
-            identifier: Date.now(),
-            target: doubleTapVideoElement,
-            clientX: x,
-            clientY: y,
-            pageX: x,
-            pageY: y,
-            radiusX: 2.5,
-            radiusY: 2.5,
-            rotationAngle: 0,
-            force: 0.5,
-        });
-
-        // TouchStart
-        const touchStartEvent = new TouchEvent('touchstart', {
-            cancelable: true,
-            bubbles: true,
-            touches: [touchObj],
-            targetTouches: [touchObj],
-            changedTouches: [touchObj],
-        });
-
-        // TouchEnd
-        const touchEndEvent = new TouchEvent('touchend', {
-            cancelable: true,
-            bubbles: true,
-            touches: [],
-            targetTouches: [],
-            changedTouches: [touchObj],
-        });
-
-        // Temporarily hide our canvas
-        doubleTapCanvas.style.pointerEvents = 'none';
-
-        // Dispatch events
-        doubleTapVideoElement.dispatchEvent(touchStartEvent);
-        doubleTapVideoElement.dispatchEvent(touchEndEvent);
-
-        // Restore canvas after a brief delay
-        setTimeout(() => {
-            if (doubleTapCanvas) {
-                doubleTapCanvas.style.pointerEvents = 'auto';
-            }
-        }, 100);
-    } catch (e) {
-        console.error('Error forwarding tap:', e);
-
-        // Fallback to simpler click event
-        const clickEvent = new MouseEvent('click', {
-            bubbles: true,
-            cancelable: true,
-            view: window,
-            clientX: x,
-            clientY: y
-        });
-        doubleTapVideoElement.dispatchEvent(clickEvent);
-    }
-}
-
-function initDoubleTapSeek() {
-    // Clean up any existing double tap resources first
-    removeDoubleTapSeek();
-
-    // Reset initialized state
-    doubleTapInitialized = false;
-
-    // Find video element
-    doubleTapVideoElement = document.getElementById('VideoPlayer');
-    if (!doubleTapVideoElement) {
-        // If video element not found yet, try again later
-        setTimeout(initDoubleTapSeek, 1000);
-        return;
-    }
-
-    // Instead of immediately creating the canvas, wait for the first play event
-    const firstPlayHandler = function () {
-        // Remove this listener since we only need it once
-        doubleTapVideoElement.removeEventListener('play', firstPlayHandler);
-
-        // Create canvas overlay
-        createDoubleTapCanvas();
-
-        // Position the canvas
-        positionDoubleTapCanvas();
-
-        // Setup resize and mutation observers
-        setupDoubleTapObservers();
-
-        doubleTapInitialized = true;
-    };
-
-    // Add listener for the first play event
-    doubleTapVideoElement.addEventListener('play', firstPlayHandler);
-
-    // If the video is already playing, trigger the handler immediately
-    if (doubleTapVideoElement && !doubleTapVideoElement.paused) {
-        firstPlayHandler();
-    }
-
-    // Start monitoring for navigation
-    if (!window.doubleTapMonitorInterval) {
-        monitorVideoNavigation();
-    }
-}
-
-function monitorVideoNavigation() {
-    // Only monitor if double tap is enabled
-    if (!config.enableDoubleTapSeek) return;
-
-    // Keep track of the current video URL
-    let currentVideoUrl = null;
-    let lastVideoCheck = 0;
-
-    if (doubleTapVideoElement) {
-        currentVideoUrl = doubleTapVideoElement.src;
-    }
-
-    // Check periodically for video source changes, but not too frequently
-    const checkInterval = setInterval(() => {
-        // Skip if feature is disabled
-        if (!config.enableDoubleTapSeek) return;
-
-        // Don't check too frequently
-        const now = Date.now();
-        if (now - lastVideoCheck < 2000) return;
-        lastVideoCheck = now;
-
-        const videoPlayer = document.getElementById('VideoPlayer');
-        if (videoPlayer && videoPlayer.src && videoPlayer.src !== currentVideoUrl) {
-            currentVideoUrl = videoPlayer.src;
-
-            // Only reinitialize if our current reference is outdated
-            if (!doubleTapVideoElement || doubleTapVideoElement !== videoPlayer) {
-                // Remove existing canvas first
-                if (doubleTapCanvas && doubleTapCanvas.parentNode) {
-                    doubleTapCanvas.parentNode.removeChild(doubleTapCanvas);
-                    doubleTapCanvas = null;
-                }
-
-                // Update our reference
-                doubleTapVideoElement = videoPlayer;
-                doubleTapInitialized = false;
-
-                // Setup initialization on next play
-                const playHandler = function () {
-                    createDoubleTapCanvas();
-                    positionDoubleTapCanvas();
-                    doubleTapInitialized = true;
-                    videoPlayer.removeEventListener('play', playHandler);
-                };
-
-                videoPlayer.addEventListener('play', playHandler);
-
-                // If already playing, initialize now
-                if (!videoPlayer.paused) {
-                    playHandler();
-                }
-            }
-        }
-    }, 3000); // Check every 3 seconds instead of every 1 second
-
-    // Store the interval ID for cleanup
-    window.doubleTapMonitorInterval = checkInterval;
-}
 
 // Apply changes to all videos when settings change
 function applySettingsToAllVideos() {
@@ -3433,7 +2496,7 @@ function applySettingsToAllVideos() {
         // Find the wrapper for this video
         const videoId = video.id;
         const videoWrapper = document.getElementById(`fluid_video_wrapper_${videoId}`);
-        
+
         // Apply or remove glow effect to wrapper
         if (config.enableGlow && videoWrapper) {
             videoWrapper.style.transition = `box-shadow ${config.sampleInterval}ms ease-in-out`;
