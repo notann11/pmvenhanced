@@ -348,7 +348,7 @@ function processBatch() {
             if (bgColor === 'rgb(34, 34, 34)') {
                 el.style.backgroundColor = '#000000';
             } else {
-                el.style.backgroundColor = 'transparent';
+                el.style.backgroundColor = '#000000';
             }
         }
         // Check text color
